@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import StarRating from "./StarRating";
-import { useMovies } from "./useMovies";
-import { useLocalStorageState } from "./useLocalStorageState";
-import { useKey } from "./useKey";
 
 const tempMovieData = [
   {
@@ -60,17 +57,33 @@ const tempQuery = "novo";
 
 const KEY = "7ee345aa";
 export default function App() {
+  const [movies, setMovies] = useState([]);
+  // const [watched, setWatched] = useState([]);
+  const [watched, setWatched] = useState(function () {
+    const storedValue = localStorage.getItem("watched");
+    return JSON.parse(storedValue);
+  });
+  const [isloading, setIsLoading] = useState(false);
+  const [error, setErr] = useState("");
   const [query, setQuery] = useState("");
+
+  // const [selectedId, setSelectedId] = useState("tt7640228");
   const [selectedId, setSelectedId] = useState(null);
-
-  const { movies, isloading, error } = useMovies(query);
-
-  const [watched, setWatched] = useLocalStorageState([], "watched");
-
-  // const [watched, setWatched] = useState(function () {
-  //   const storedValue = localStorage.getItem("watched");
-  //   return JSON.parse(storedValue);
-  // });
+  /*
+  useEffect(function () {
+    console.log("After initial render");
+  }, []);
+  useEffect(function () {
+    console.log("After every render");
+  });
+  console.log("during render");
+  useEffect(
+    function () {
+      console.log("D");
+    },
+    [query]
+  );
+*/
 
   function handleSelectMovie(id) {
     setSelectedId((selectedId) => (id === selectedId ? null : id));
@@ -88,13 +101,57 @@ export default function App() {
     setWatched((watched) => watched.filter((movie) => movie.imdbID !== id));
   }
 
-  // useEffect(
-  //   function () {
-  //     localStorage.setItem("watched", JSON.stringify(watched));
-  //   },
-  //   [watched]
-  // );
+  useEffect(
+    function () {
+      localStorage.setItem("watched", JSON.stringify(watched));
+    },
+    [watched]
+  );
 
+  useEffect(
+    function () {
+      const controller = new AbortController();
+      async function fetchMovies() {
+        try {
+          setIsLoading(true);
+          setErr("");
+          const res = await fetch(
+            `http://www.omdbapi.com/?apikey=${KEY}&s=${query}`,
+            { signal: controller.signal }
+          );
+          if (!res.ok) {
+            throw new Error("Something went wrong with fetching movies");
+          }
+
+          const data = await res.json();
+          if (data.Response === "False") {
+            throw new Error("Movie not found");
+          }
+          setMovies(data.Search);
+          setErr("");
+          // console.log(data.Search);
+        } catch (e) {
+          // console.error(e.message);
+          if (e.name !== "AbortError") {
+            setErr(e.message);
+          }
+        } finally {
+          setIsLoading(false);
+        }
+      }
+      if (query === null || query.length <= 3) {
+        setMovies([]);
+        setErr("");
+        return;
+      }
+      handleCloseMovie();
+      fetchMovies();
+      return function () {
+        controller.abort();
+      };
+    },
+    [query]
+  );
   return (
     <>
       <NavBar>
@@ -163,29 +220,10 @@ function Logo() {
 function Search({ query, setQuery }) {
   const inputEl = useRef(null);
 
-  useKey("Enter", function (e) {
-    if (document.activeElement === inputEl.current) return;
-
+  useEffect(function () {
+    console.log(inputEl.current);
     inputEl.current.focus();
-    setQuery("");
-  });
-
-  // useEffect(
-  //   function () {
-  //     function enterCallback(e) {
-  //       if (document.activeElement === inputEl.current) return;
-  //       if (e.code === "Enter") {
-  //         inputEl.current.focus();
-  //         setQuery("");
-  //       }
-  //     }
-  //     document.addEventListener("keydown", enterCallback);
-  //     return () => document.removeEventListener("keydown", enterCallback);
-
-  //     // console.log(inputEl.current);
-  //   },
-  //   [setQuery]
-  // );
+  }, []);
 
   // useEffect(function(){
   //   const el = document.querySelector('.search')
@@ -286,15 +324,6 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
   const [isLoading, setIsLoading] = useState(false);
   const [userRating, setUserRating] = useState("");
 
-  const countRef = useRef(0);
-
-  useEffect(
-    function () {
-      if (userRating) countRef.current = countRef.current + 1;
-    },
-    [userRating]
-  );
-
   const isWathced = watched.map((movie) => movie.imdbID).includes(selectedId);
 
   const watchedUserRating = watched.find(
@@ -322,7 +351,6 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
       imdbRating: Number(imdbRating),
       runtime: Number(runtime.split(" ").at(0)),
       userRating,
-      countRatingDecisions: countRef.current,
     };
     onAddWatched(newWatchedMovie);
     onCloseMovie();
@@ -330,22 +358,21 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
   // const isIgual = watched.filter((mov) => mov.imdbID === selectedId && mov);
   // console.log(isIgual);
   // console.log(title, genre);
-  useKey("Escape", onCloseMovie);
-  // useEffect(
-  //   function () {
-  //     function keydownCallback(e) {
-  //       if (e.code === "Escape") {
-  //         onCloseMovie();
-  //         // console.log("closing");
-  //       }
-  //     }
-  //     document.addEventListener("keydown", keydownCallback);
-  //     return function () {
-  //       document.removeEventListener("keydown", keydownCallback);
-  //     };
-  //   },
-  //   [onCloseMovie]
-  // );
+  useEffect(
+    function () {
+      function keydownCallback(e) {
+        if (e.code === "Escape") {
+          onCloseMovie();
+          // console.log("closing");
+        }
+      }
+      document.addEventListener("keydown", keydownCallback);
+      return function () {
+        document.removeEventListener("keydown", keydownCallback);
+      };
+    },
+    [onCloseMovie]
+  );
 
   useEffect(
     function () {
